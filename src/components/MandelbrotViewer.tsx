@@ -5,6 +5,7 @@ import { useMandelbrotState } from "@/hooks/use-mandelbrot-state";
 import { useWebGLRenderer } from "@/hooks/use-webgl-renderer";
 import { useInteraction } from "@/hooks/use-interaction";
 import { useUrlSync } from "@/hooks/use-url-sync";
+import { useReferenceOrbit } from "@/hooks/use-reference-orbit";
 import type { Viewport } from "@/core/types";
 
 export default function MandelbrotViewer() {
@@ -17,8 +18,10 @@ export default function MandelbrotViewer() {
     stateRef.current = state;
   }, [state]);
 
+  const referenceOrbit = useReferenceOrbit(state);
+
   useUrlSync(state, dispatch);
-  useWebGLRenderer(canvasRef, state, viewportRef);
+  useWebGLRenderer(canvasRef, state, viewportRef, referenceOrbit);
   useInteraction(canvasRef, stateRef, dispatch, viewportRef);
 
   return (

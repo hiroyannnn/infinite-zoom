@@ -3,12 +3,13 @@ import {
   createMandelbrotRenderer,
   type MandelbrotRenderer,
 } from "@/webgl/renderer";
-import type { ViewerState, Viewport } from "@/core/types";
+import type { ViewerState, Viewport, ReferenceOrbit } from "@/core/types";
 
 export function useWebGLRenderer(
   canvasRef: React.RefObject<HTMLCanvasElement | null>,
   state: ViewerState,
-  viewportRef: React.MutableRefObject<Viewport>
+  viewportRef: React.MutableRefObject<Viewport>,
+  referenceOrbit: ReferenceOrbit | null
 ) {
   const rendererRef = useRef<MandelbrotRenderer | null>(null);
 
@@ -46,6 +47,12 @@ export function useWebGLRenderer(
       rendererRef.current = null;
     };
   }, [canvasRef, viewportRef]);
+
+  useEffect(() => {
+    if (referenceOrbit) {
+      rendererRef.current?.updateReferenceOrbit(referenceOrbit);
+    }
+  }, [referenceOrbit]);
 
   useEffect(() => {
     const frameId = requestAnimationFrame(() => {

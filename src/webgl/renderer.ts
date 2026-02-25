@@ -1,9 +1,18 @@
-import { VERTEX_SHADER, FRAGMENT_SHADER } from "./shaders";
-import { computeScale } from "@/core/mandelbrot-math";
-import type { ViewerState, Viewport } from "@/core/types";
+import {
+  VERTEX_SHADER,
+  FRAGMENT_SHADER,
+  PERTURBATION_FRAGMENT_SHADER,
+} from "./shaders";
+import { computeScale, splitDoubleSingle } from "@/core/mandelbrot-math";
+import { createOrbitTexture, type OrbitTexture } from "./orbit-texture";
+import type { ViewerState, Viewport, ReferenceOrbit } from "@/core/types";
+
+const ZOOM_THRESHOLD_IN = 1e6;
+const ZOOM_THRESHOLD_OUT = 5e5;
 
 export interface MandelbrotRenderer {
   updateAndRender(state: ViewerState, viewport: Viewport): void;
+  updateReferenceOrbit(orbit: ReferenceOrbit): void;
   resize(width: number, height: number): void;
   destroy(): void;
 }
@@ -43,19 +52,7 @@ function createProgram(
   return program;
 }
 
-export function createMandelbrotRenderer(
-  gl: WebGL2RenderingContext
-): MandelbrotRenderer {
-  const vs = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER);
-  const fs = compileShader(gl, gl.FRAGMENT_SHADER, FRAGMENT_SHADER);
-  const program = createProgram(gl, vs, fs);
-
-  const uCenter = gl.getUniformLocation(program, "u_center");
-  const uScale = gl.getUniformLocation(program, "u_scale");
-  const uResolution = gl.getUniformLocation(program, "u_resolution");
-  const uMaxIterations = gl.getUniformLocation(program, "u_maxIterations");
-
-  // Fullscreen quad: two triangles covering clip space [-1, 1]
+function setupQuad(gl: WebGL2RenderingContext, program: WebGLProgram) {
   const vertices = new Float32Array([
     -1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1,
   ]);
@@ -69,22 +66,130 @@ export function createMandelbrotRenderer(
   const aPosition = gl.getAttribLocation(program, "a_position");
   gl.enableVertexAttribArray(aPosition);
   gl.vertexAttribPointer(aPosition, 2, gl.FLOAT, false, 0, 0);
-
   gl.bindVertexArray(null);
+
+  return { vao, vbo };
+}
+
+export function createMandelbrotRenderer(
+  gl: WebGL2RenderingContext
+): MandelbrotRenderer {
+  // Direct shader program
+  const vs = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER);
+  const directFs = compileShader(gl, gl.FRAGMENT_SHADER, FRAGMENT_SHADER);
+  const directProgram = createProgram(gl, vs, directFs);
+  const directQuad = setupQuad(gl, directProgram);
+
+  const directUniforms = {
+    center: gl.getUniformLocation(directProgram, "u_center"),
+    scale: gl.getUniformLocation(directProgram, "u_scale"),
+    resolution: gl.getUniformLocation(directProgram, "u_resolution"),
+    maxIterations: gl.getUniformLocation(directProgram, "u_maxIterations"),
+  };
+
+  // Perturbation shader program
+  const perturbFs = compileShader(
+    gl,
+    gl.FRAGMENT_SHADER,
+    PERTURBATION_FRAGMENT_SHADER
+  );
+  const perturbProgram = createProgram(gl, vs, perturbFs);
+  const perturbQuad = setupQuad(gl, perturbProgram);
+
+  const perturbUniforms = {
+    resolution: gl.getUniformLocation(perturbProgram, "u_resolution"),
+    scale: gl.getUniformLocation(perturbProgram, "u_scale"),
+    maxIterations: gl.getUniformLocation(perturbProgram, "u_maxIterations"),
+    orbitLength: gl.getUniformLocation(perturbProgram, "u_orbitLength"),
+    orbitTexWidth: gl.getUniformLocation(perturbProgram, "u_orbitTexWidth"),
+    escapeIteration: gl.getUniformLocation(perturbProgram, "u_escapeIteration"),
+    deltaCenterHi: gl.getUniformLocation(perturbProgram, "u_deltaCenterHi"),
+    deltaCenterLo: gl.getUniformLocation(perturbProgram, "u_deltaCenterLo"),
+    orbitTexture: gl.getUniformLocation(perturbProgram, "u_orbitTexture"),
+  };
+
+  const orbitTex: OrbitTexture = createOrbitTexture(gl);
+  let currentOrbit: ReferenceOrbit | null = null;
+  let usePerturbation = false;
+
+  function renderDirect(state: ViewerState, viewport: Viewport) {
+    const scale = computeScale(state.zoom, viewport);
+    gl.useProgram(directProgram);
+    gl.uniform2f(directUniforms.center, state.centerX, state.centerY);
+    gl.uniform1f(directUniforms.scale, scale);
+    gl.uniform2f(directUniforms.resolution, viewport.width, viewport.height);
+    gl.uniform1i(directUniforms.maxIterations, state.maxIterations);
+
+    gl.bindVertexArray(directQuad.vao);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    gl.bindVertexArray(null);
+  }
+
+  function renderPerturbation(
+    state: ViewerState,
+    viewport: Viewport,
+    orbit: ReferenceOrbit
+  ) {
+    const scale = computeScale(state.zoom, viewport);
+
+    // Compute δc = (state.center - orbit.center)
+    // Use centerXStr for precision if available
+    const refCenterRe = Number(orbit.centerReStr);
+    const refCenterIm = Number(orbit.centerImStr);
+    const deltaRe = state.centerX - refCenterRe;
+    const deltaIm = state.centerY - refCenterIm;
+    const deltaReDS = splitDoubleSingle(deltaRe);
+    const deltaImDS = splitDoubleSingle(deltaIm);
+
+    gl.useProgram(perturbProgram);
+    gl.uniform2f(perturbUniforms.resolution, viewport.width, viewport.height);
+    gl.uniform1f(perturbUniforms.scale, scale);
+    gl.uniform1i(perturbUniforms.maxIterations, state.maxIterations);
+    gl.uniform1i(perturbUniforms.orbitLength, orbit.orbitLength);
+    gl.uniform1i(perturbUniforms.orbitTexWidth, orbitTex.getWidth());
+    gl.uniform1i(perturbUniforms.escapeIteration, orbit.escapeIteration);
+    gl.uniform2f(
+      perturbUniforms.deltaCenterHi,
+      deltaReDS.hi,
+      deltaImDS.hi
+    );
+    gl.uniform2f(
+      perturbUniforms.deltaCenterLo,
+      deltaReDS.lo,
+      deltaImDS.lo
+    );
+
+    orbitTex.bind(0);
+    gl.uniform1i(perturbUniforms.orbitTexture, 0);
+
+    gl.bindVertexArray(perturbQuad.vao);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    gl.bindVertexArray(null);
+  }
 
   return {
     updateAndRender(state: ViewerState, viewport: Viewport) {
-      const scale = computeScale(state.zoom, viewport);
+      // Hysteresis switching
+      if (usePerturbation) {
+        if (state.zoom < ZOOM_THRESHOLD_OUT) {
+          usePerturbation = false;
+        }
+      } else {
+        if (state.zoom >= ZOOM_THRESHOLD_IN && currentOrbit) {
+          usePerturbation = true;
+        }
+      }
 
-      gl.useProgram(program);
-      gl.uniform2f(uCenter, state.centerX, state.centerY);
-      gl.uniform1f(uScale, scale);
-      gl.uniform2f(uResolution, viewport.width, viewport.height);
-      gl.uniform1i(uMaxIterations, state.maxIterations);
+      if (usePerturbation && currentOrbit) {
+        renderPerturbation(state, viewport, currentOrbit);
+      } else {
+        renderDirect(state, viewport);
+      }
+    },
 
-      gl.bindVertexArray(vao);
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
-      gl.bindVertexArray(null);
+    updateReferenceOrbit(orbit: ReferenceOrbit) {
+      currentOrbit = orbit;
+      orbitTex.update(orbit);
     },
 
     resize(width: number, height: number) {
@@ -92,11 +197,16 @@ export function createMandelbrotRenderer(
     },
 
     destroy() {
-      gl.deleteBuffer(vbo);
-      gl.deleteVertexArray(vao);
-      gl.deleteProgram(program);
+      orbitTex.destroy();
+      gl.deleteBuffer(directQuad.vbo);
+      gl.deleteVertexArray(directQuad.vao);
+      gl.deleteBuffer(perturbQuad.vbo);
+      gl.deleteVertexArray(perturbQuad.vao);
+      gl.deleteProgram(directProgram);
+      gl.deleteProgram(perturbProgram);
       gl.deleteShader(vs);
-      gl.deleteShader(fs);
+      gl.deleteShader(directFs);
+      gl.deleteShader(perturbFs);
     },
   };
 }

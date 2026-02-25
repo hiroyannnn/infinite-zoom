@@ -10,8 +10,9 @@ export const DEFAULT_STATE: ViewerState = {
 
 export function encodeStateToParams(state: ViewerState): string {
   const params = new URLSearchParams();
-  params.set("x", state.centerX.toPrecision(8));
-  params.set("y", state.centerY.toPrecision(8));
+  // Use precision strings if available (deep zoom)
+  params.set("x", state.centerXStr ?? state.centerX.toPrecision(8));
+  params.set("y", state.centerYStr ?? state.centerY.toPrecision(8));
   params.set("z", state.zoom.toPrecision(6));
   return params.toString();
 }
@@ -31,10 +32,18 @@ export function decodeStateFromParams(search: string): ViewerState | null {
   if (!Number.isFinite(centerX) || !Number.isFinite(centerY)) return null;
   if (!Number.isFinite(zoom) || zoom <= 0) return null;
 
-  return {
+  const state: ViewerState = {
     centerX,
     centerY,
     zoom,
     maxIterations: computeMaxIterations(zoom),
   };
+
+  // Preserve precision strings for deep zoom coordinates
+  if (xStr.length > 10 || yStr.length > 10) {
+    state.centerXStr = xStr;
+    state.centerYStr = yStr;
+  }
+
+  return state;
 }
