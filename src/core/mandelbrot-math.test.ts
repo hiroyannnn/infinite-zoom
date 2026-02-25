@@ -6,6 +6,7 @@ import {
   zoomAtPoint,
   panByPixelDelta,
   computeMaxIterations,
+  splitDoubleSingle,
 } from "./mandelbrot-math";
 import type { ViewerState, Viewport, PixelPoint } from "./types";
 
@@ -157,5 +158,23 @@ describe("computeMaxIterations", () => {
       expect(iter).toBeGreaterThan(0);
       expect(Number.isInteger(iter)).toBe(true);
     }
+  });
+});
+
+describe("splitDoubleSingle", () => {
+  it("hi + lo が元の値を復元する", () => {
+    const value = 1.23456789012345;
+    const { hi, lo } = splitDoubleSingle(value);
+    expect(hi + lo).toBeCloseTo(value, 14);
+  });
+
+  it("hi は float32 に丸められる", () => {
+    const { hi } = splitDoubleSingle(Math.PI);
+    expect(hi).toBe(Math.fround(Math.PI));
+  });
+
+  it("整数値では lo が 0 に近い", () => {
+    const { lo } = splitDoubleSingle(42);
+    expect(Math.abs(lo)).toBeLessThan(1e-5);
   });
 });

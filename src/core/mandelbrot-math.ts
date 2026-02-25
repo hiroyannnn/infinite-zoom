@@ -70,3 +70,9 @@ export function panByPixelDelta(
 export function computeMaxIterations(zoom: number): number {
   return Math.max(50, Math.floor(100 + 50 * Math.log2(Math.max(1, zoom))));
 }
+
+export function splitDoubleSingle(value: number): { hi: number; lo: number } {
+  const hi = Math.fround(value);
+  const lo = value - hi;
+  return { hi, lo };
+}
