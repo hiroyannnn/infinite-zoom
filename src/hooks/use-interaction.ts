@@ -6,11 +6,11 @@ import {
   type PinchMetrics,
 } from "@/core/interaction";
 import type { Action } from "./use-mandelbrot-state";
-import type { Viewport } from "@/core/types";
+import type { ViewerState, Viewport } from "@/core/types";
 
 export function useInteraction(
   canvasRef: React.RefObject<HTMLCanvasElement | null>,
-  stateRef: React.MutableRefObject<import("@/core/types").ViewerState>,
+  stateRef: React.MutableRefObject<ViewerState>,
   dispatch: React.Dispatch<Action>,
   viewportRef: React.MutableRefObject<Viewport>
 ) {
@@ -22,10 +22,12 @@ export function useInteraction(
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    const getDpr = () => window.devicePixelRatio || 1;
+
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const rect = canvas.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = getDpr();
       const factor = wheelDeltaToZoomFactor(e.deltaY, e.deltaMode);
       dispatch({
         type: "ZOOM",
@@ -46,7 +48,7 @@ export function useInteraction(
 
     const onMouseMove = (e: MouseEvent) => {
       if (!isDragging.current) return;
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = getDpr();
       const deltaX = (e.clientX - lastMouse.current.x) * dpr;
       const deltaY = (e.clientY - lastMouse.current.y) * dpr;
       lastMouse.current = { x: e.clientX, y: e.clientY };
@@ -64,7 +66,7 @@ export function useInteraction(
 
     const getTouchPoints = (e: TouchEvent) => {
       const rect = canvas.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = getDpr();
       return Array.from(e.touches).map((t) => ({
         x: (t.clientX - rect.left) * dpr,
         y: (t.clientY - rect.top) * dpr,
@@ -91,7 +93,7 @@ export function useInteraction(
       const points = getTouchPoints(e);
 
       if (points.length === 1 && isDragging.current) {
-        const dpr = window.devicePixelRatio || 1;
+        const dpr = getDpr();
         const deltaX = (e.touches[0].clientX - lastMouse.current.x) * dpr;
         const deltaY = (e.touches[0].clientY - lastMouse.current.y) * dpr;
         lastMouse.current = {

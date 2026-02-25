@@ -11,13 +11,7 @@ export function useWebGLRenderer(
   viewportRef: React.MutableRefObject<Viewport>
 ) {
   const rendererRef = useRef<MandelbrotRenderer | null>(null);
-  const stateRef = useRef(state);
 
-  useEffect(() => {
-    stateRef.current = state;
-  }, [state]);
-
-  // Initialize WebGL context and renderer
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -53,17 +47,10 @@ export function useWebGLRenderer(
     };
   }, [canvasRef, viewportRef]);
 
-  // Render on state change
   useEffect(() => {
-    const render = () => {
-      if (rendererRef.current) {
-        rendererRef.current.updateAndRender(
-          stateRef.current,
-          viewportRef.current
-        );
-      }
-    };
-    const frameId = requestAnimationFrame(render);
+    const frameId = requestAnimationFrame(() => {
+      rendererRef.current?.updateAndRender(state, viewportRef.current);
+    });
     return () => cancelAnimationFrame(frameId);
   }, [state, viewportRef]);
 }

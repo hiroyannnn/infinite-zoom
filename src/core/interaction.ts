@@ -38,9 +38,9 @@ export function computePinchUpdate(
   curr: PinchMetrics,
   viewport: Viewport
 ): ViewerState {
-  const panDeltaX = prev.center.x - curr.center.x;
-  const panDeltaY = prev.center.y - curr.center.y;
-  let newState = panByPixelDelta(state, -panDeltaX, -panDeltaY, viewport);
+  const deltaX = curr.center.x - prev.center.x;
+  const deltaY = curr.center.y - prev.center.y;
+  let newState = panByPixelDelta(state, deltaX, deltaY, viewport);
 
   if (prev.distance > 0) {
     const zoomFactor = curr.distance / prev.distance;

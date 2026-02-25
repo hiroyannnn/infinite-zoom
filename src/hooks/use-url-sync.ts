@@ -11,16 +11,14 @@ export function useUrlSync(
 ) {
   const initialized = useRef(false);
 
-  // On mount: read URL params and apply to state
   useEffect(() => {
-    const decoded = decodeStateFromParams(window.location.search.slice(1));
+    const decoded = decodeStateFromParams(window.location.search);
     if (decoded) {
       dispatch({ type: "SET_STATE", state: decoded });
     }
     initialized.current = true;
   }, [dispatch]);
 
-  // On state change: update URL
   useEffect(() => {
     if (!initialized.current) return;
 

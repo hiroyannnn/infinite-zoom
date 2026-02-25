@@ -28,8 +28,7 @@ export function decodeStateFromParams(search: string): ViewerState | null {
   const centerY = Number(yStr);
   const zoom = Number(zStr);
 
-  if (!Number.isFinite(centerX)) return null;
-  if (!Number.isFinite(centerY)) return null;
+  if (!Number.isFinite(centerX) || !Number.isFinite(centerY)) return null;
   if (!Number.isFinite(zoom) || zoom <= 0) return null;
 
   return {
