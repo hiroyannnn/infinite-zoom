@@ -24,17 +24,34 @@ export function useInteraction(
 
     const getDpr = () => window.devicePixelRatio || 1;
 
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
+    const clientToCanvasPixel = (clientX: number, clientY: number) => {
       const rect = canvas.getBoundingClientRect();
       const dpr = getDpr();
+      return {
+        x: (clientX - rect.left) * dpr,
+        y: (clientY - rect.top) * dpr,
+      };
+    };
+
+    const dispatchPan = (clientX: number, clientY: number) => {
+      const dpr = getDpr();
+      const deltaX = (clientX - lastMouse.current.x) * dpr;
+      const deltaY = (clientY - lastMouse.current.y) * dpr;
+      lastMouse.current = { x: clientX, y: clientY };
+      dispatch({
+        type: "PAN",
+        deltaX,
+        deltaY,
+        viewport: viewportRef.current,
+      });
+    };
+
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
       const factor = wheelDeltaToZoomFactor(e.deltaY, e.deltaMode);
       dispatch({
         type: "ZOOM",
-        pixel: {
-          x: (e.clientX - rect.left) * dpr,
-          y: (e.clientY - rect.top) * dpr,
-        },
+        pixel: clientToCanvasPixel(e.clientX, e.clientY),
         viewport: viewportRef.current,
         factor,
       });
@@ -48,29 +65,20 @@ export function useInteraction(
 
     const onMouseMove = (e: MouseEvent) => {
       if (!isDragging.current) return;
-      const dpr = getDpr();
-      const deltaX = (e.clientX - lastMouse.current.x) * dpr;
-      const deltaY = (e.clientY - lastMouse.current.y) * dpr;
-      lastMouse.current = { x: e.clientX, y: e.clientY };
-      dispatch({
-        type: "PAN",
-        deltaX,
-        deltaY,
-        viewport: viewportRef.current,
-      });
+      dispatchPan(e.clientX, e.clientY);
     };
 
     const onMouseUp = () => {
       isDragging.current = false;
     };
 
-    const getTouchPoints = (e: TouchEvent) => {
-      const rect = canvas.getBoundingClientRect();
-      const dpr = getDpr();
-      return Array.from(e.touches).map((t) => ({
-        x: (t.clientX - rect.left) * dpr,
-        y: (t.clientY - rect.top) * dpr,
-      }));
+    const getTouchPoints = (e: TouchEvent) =>
+      Array.from(e.touches).map((t) =>
+        clientToCanvasPixel(t.clientX, t.clientY)
+      );
+
+    const setLastMouseFromTouch = (touch: Touch) => {
+      lastMouse.current = { x: touch.clientX, y: touch.clientY };
     };
 
     const onTouchStart = (e: TouchEvent) => {
@@ -78,10 +86,7 @@ export function useInteraction(
       const points = getTouchPoints(e);
       if (points.length === 1) {
         isDragging.current = true;
-        lastMouse.current = {
-          x: e.touches[0].clientX,
-          y: e.touches[0].clientY,
-        };
+        setLastMouseFromTouch(e.touches[0]);
       } else if (points.length === 2) {
         isDragging.current = false;
         lastPinch.current = computePinchMetrics(points[0], points[1]);
@@ -93,19 +98,7 @@ export function useInteraction(
       const points = getTouchPoints(e);
 
       if (points.length === 1 && isDragging.current) {
-        const dpr = getDpr();
-        const deltaX = (e.touches[0].clientX - lastMouse.current.x) * dpr;
-        const deltaY = (e.touches[0].clientY - lastMouse.current.y) * dpr;
-        lastMouse.current = {
-          x: e.touches[0].clientX,
-          y: e.touches[0].clientY,
-        };
-        dispatch({
-          type: "PAN",
-          deltaX,
-          deltaY,
-          viewport: viewportRef.current,
-        });
+        dispatchPan(e.touches[0].clientX, e.touches[0].clientY);
       } else if (points.length === 2 && lastPinch.current) {
         const currMetrics = computePinchMetrics(points[0], points[1]);
         const newState = computePinchUpdate(
@@ -126,10 +119,7 @@ export function useInteraction(
       } else if (e.touches.length === 1) {
         lastPinch.current = null;
         isDragging.current = true;
-        lastMouse.current = {
-          x: e.touches[0].clientX,
-          y: e.touches[0].clientY,
-        };
+        setLastMouseFromTouch(e.touches[0]);
       }
     };
 
