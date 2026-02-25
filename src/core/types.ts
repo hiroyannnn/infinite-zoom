@@ -3,6 +3,17 @@ export interface ViewerState {
   centerY: number;
   zoom: number;
   maxIterations: number;
+  centerXStr?: string;
+  centerYStr?: string;
+}
+
+export interface ReferenceOrbit {
+  centerReStr: string;
+  centerImStr: string;
+  orbitData: Float32Array;
+  magnitudeSquared: Float32Array;
+  orbitLength: number;
+  escapeIteration: number;
 }
 
 export interface Viewport {
