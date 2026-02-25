@@ -52,12 +52,9 @@ export function useWebGLRenderer(
     if (referenceOrbit) {
       rendererRef.current?.updateReferenceOrbit(referenceOrbit);
     }
-  }, [referenceOrbit]);
-
-  useEffect(() => {
     const frameId = requestAnimationFrame(() => {
       rendererRef.current?.updateAndRender(state, viewportRef.current);
     });
     return () => cancelAnimationFrame(frameId);
-  }, [state, viewportRef]);
+  }, [state, viewportRef, referenceOrbit]);
 }
