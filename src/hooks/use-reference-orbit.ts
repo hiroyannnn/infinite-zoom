@@ -12,7 +12,8 @@ export function useReferenceOrbit(
 
   useEffect(() => {
     if (state.zoom < PERTURBATION_ZOOM_THRESHOLD) {
-      if (orbit !== null) setOrbit(null);
+      cacheKeyRef.current = "";
+      setOrbit(null);
       return;
     }
 
@@ -30,7 +31,7 @@ export function useReferenceOrbit(
       zoom: state.zoom,
     });
     setOrbit(newOrbit);
-  }, [state, orbit]);
+  }, [state]);
 
   return orbit;
 }
