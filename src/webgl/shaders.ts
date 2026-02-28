@@ -50,6 +50,8 @@ void main() {
 }
 `;
 
+export const SA_MAX_ORDER = 12;
+
 export const PERTURBATION_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 
@@ -63,6 +65,11 @@ uniform int u_escapeIteration;
 // Double-single precision delta: δc = hi + lo
 uniform vec2 u_deltaCenterHi;
 uniform vec2 u_deltaCenterLo;
+
+// Series Approximation uniforms
+uniform int u_saSkip;           // N (0 = SA disabled)
+uniform float u_saInvRadius;    // 1/r
+uniform vec2 u_saCoeff[${SA_MAX_ORDER}];  // B_k normalized coefficients
 
 uniform highp sampler2D u_orbitTexture;
 
@@ -87,6 +94,23 @@ vec2 dsAdd(float aHi, float aLo, float bHi, float bLo) {
   return vec2(s + lo, lo - ((s + lo) - s));
 }
 
+// Complex multiplication
+vec2 cMul(vec2 a, vec2 b) {
+  return vec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
+}
+
+// Evaluate SA polynomial using Horner's method
+// δz_N ≈ x · (B_0 + x · (B_1 + x · (... + x · B_{p-1})))
+// where x = δc / r (normalized)
+vec2 evalSA(vec2 dc) {
+  vec2 x = dc * u_saInvRadius;
+  vec2 acc = u_saCoeff[${SA_MAX_ORDER - 1}];
+  for (int i = ${SA_MAX_ORDER - 2}; i >= 0; i--) {
+    acc = cMul(acc, x) + u_saCoeff[i];
+  }
+  return cMul(acc, x);
+}
+
 void main() {
   vec2 uv = gl_FragCoord.xy;
   vec2 pixelOffset = (uv - u_resolution * 0.5) * u_scale;
@@ -104,8 +128,17 @@ void main() {
   int iter = 0;
   float finalMagSq = 0.0;
 
+  // SA: skip initial iterations using polynomial approximation
+  if (u_saSkip > 0) {
+    vec2 dz = evalSA(vec2(dcRe, dcIm));
+    dzRe = dz.x;
+    dzIm = dz.y;
+    n = u_saSkip;
+    iter = u_saSkip;
+  }
+
   for (int i = 0; i < 10000; i++) {
-    if (i >= u_maxIterations) break;
+    if (iter >= u_maxIterations) break;
     if (n >= u_orbitLength) break;
 
     vec4 orbitVal = getOrbitData(n);
@@ -121,7 +154,6 @@ void main() {
     // Escape check
     if (fullMagSq > 4.0) {
       finalMagSq = fullMagSq;
-      iter = i;
       break;
     }
 
@@ -145,7 +177,7 @@ void main() {
     dzIm = twoZdzIm + dzSqIm + dcIm;
 
     n++;
-    iter = i + 1;
+    iter++;
   }
 
   if (iter >= u_maxIterations || finalMagSq <= 4.0) {

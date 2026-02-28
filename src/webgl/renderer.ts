@@ -2,10 +2,16 @@ import {
   VERTEX_SHADER,
   FRAGMENT_SHADER,
   PERTURBATION_FRAGMENT_SHADER,
+  SA_MAX_ORDER,
 } from "./shaders";
 import { computeScale, splitDoubleSingle } from "@/core/mandelbrot-math";
 import { createOrbitTexture, type OrbitTexture } from "./orbit-texture";
-import type { ViewerState, Viewport, ReferenceOrbit } from "@/core/types";
+import type {
+  ViewerState,
+  Viewport,
+  ReferenceOrbit,
+  SeriesApproximation,
+} from "@/core/types";
 
 const ZOOM_THRESHOLD_IN = 1e6;
 const ZOOM_THRESHOLD_OUT = 5e5;
@@ -13,6 +19,7 @@ const ZOOM_THRESHOLD_OUT = 5e5;
 export interface MandelbrotRenderer {
   updateAndRender(state: ViewerState, viewport: Viewport): void;
   updateReferenceOrbit(orbit: ReferenceOrbit): void;
+  updateSeriesApproximation(sa: SeriesApproximation | null): void;
   resize(width: number, height: number): void;
   destroy(): void;
 }
@@ -106,10 +113,16 @@ export function createMandelbrotRenderer(
     deltaCenterHi: gl.getUniformLocation(perturbProgram, "u_deltaCenterHi"),
     deltaCenterLo: gl.getUniformLocation(perturbProgram, "u_deltaCenterLo"),
     orbitTexture: gl.getUniformLocation(perturbProgram, "u_orbitTexture"),
+    saSkip: gl.getUniformLocation(perturbProgram, "u_saSkip"),
+    saInvRadius: gl.getUniformLocation(perturbProgram, "u_saInvRadius"),
+    saCoeff: Array.from({ length: SA_MAX_ORDER }, (_, i) =>
+      gl.getUniformLocation(perturbProgram, `u_saCoeff[${i}]`)
+    ),
   };
 
   const orbitTex: OrbitTexture = createOrbitTexture(gl);
   let currentOrbit: ReferenceOrbit | null = null;
+  let currentSA: SeriesApproximation | null = null;
   let usePerturbation = false;
 
   function renderDirect(state: ViewerState, viewport: Viewport) {
@@ -159,6 +172,25 @@ export function createMandelbrotRenderer(
       deltaImDS.lo
     );
 
+    // SA uniforms
+    if (currentSA && currentSA.skipIterations > 0) {
+      gl.uniform1i(perturbUniforms.saSkip, currentSA.skipIterations);
+      gl.uniform1f(perturbUniforms.saInvRadius, 1.0 / currentSA.radius);
+      for (let i = 0; i < SA_MAX_ORDER; i++) {
+        if (i < currentSA.order) {
+          gl.uniform2f(
+            perturbUniforms.saCoeff[i],
+            currentSA.coefficients[i * 2],
+            currentSA.coefficients[i * 2 + 1]
+          );
+        } else {
+          gl.uniform2f(perturbUniforms.saCoeff[i], 0.0, 0.0);
+        }
+      }
+    } else {
+      gl.uniform1i(perturbUniforms.saSkip, 0);
+    }
+
     orbitTex.bind(0);
     gl.uniform1i(perturbUniforms.orbitTexture, 0);
 
@@ -190,6 +222,10 @@ export function createMandelbrotRenderer(
     updateReferenceOrbit(orbit: ReferenceOrbit) {
       currentOrbit = orbit;
       orbitTex.update(orbit);
+    },
+
+    updateSeriesApproximation(sa: SeriesApproximation | null) {
+      currentSA = sa;
     },
 
     resize(width: number, height: number) {

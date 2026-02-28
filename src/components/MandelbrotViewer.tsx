@@ -18,10 +18,10 @@ export default function MandelbrotViewer() {
     stateRef.current = state;
   }, [state]);
 
-  const referenceOrbit = useReferenceOrbit(state);
+  const referenceOrbitWithSA = useReferenceOrbit(state, viewportRef);
 
   useUrlSync(state, dispatch);
-  useWebGLRenderer(canvasRef, state, viewportRef, referenceOrbit);
+  useWebGLRenderer(canvasRef, state, viewportRef, referenceOrbitWithSA);
   useInteraction(canvasRef, stateRef, dispatch, viewportRef);
 
   return (
