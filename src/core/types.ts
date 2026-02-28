@@ -16,6 +16,18 @@ export interface ReferenceOrbit {
   escapeIteration: number;
 }
 
+export interface SeriesApproximation {
+  skipIterations: number;
+  coefficients: Float32Array;
+  radius: number;
+  order: number;
+}
+
+export interface ReferenceOrbitWithSA {
+  orbit: ReferenceOrbit;
+  sa: SeriesApproximation | null;
+}
+
 export interface Viewport {
   width: number;
   height: number;

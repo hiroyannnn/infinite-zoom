@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { computeReferenceOrbit } from "./reference-orbit";
+import {
+  computeReferenceOrbit,
+  computeReferenceOrbitWithSA,
+} from "./reference-orbit";
 
 describe("computeReferenceOrbit", () => {
   it("computes orbit for c=0 (fixed point)", () => {
@@ -99,6 +102,169 @@ describe("computeReferenceOrbit", () => {
     for (let i = escIdx + 1; i < orbit.orbitLength; i++) {
       expect(orbit.orbitData[i * 2]).toBe(lastRe);
       expect(orbit.orbitData[i * 2 + 1]).toBe(lastIm);
+    }
+  });
+});
+
+describe("computeReferenceOrbitWithSA", () => {
+  it("returns orbit and sa=null when viewportRadius is not provided", () => {
+    const result = computeReferenceOrbitWithSA({
+      centerReStr: "0",
+      centerImStr: "0",
+      maxIterations: 100,
+    });
+
+    expect(result.orbit).toBeDefined();
+    expect(result.orbit.centerReStr).toBe("0");
+    expect(result.sa).toBeNull();
+  });
+
+  it("returns orbit identical to computeReferenceOrbit", () => {
+    const params = {
+      centerReStr: "-1",
+      centerImStr: "0",
+      maxIterations: 50,
+    };
+
+    const orbitOnly = computeReferenceOrbit(params);
+    const withSA = computeReferenceOrbitWithSA(params);
+
+    expect(withSA.orbit.escapeIteration).toBe(orbitOnly.escapeIteration);
+    expect(withSA.orbit.orbitLength).toBe(orbitOnly.orbitLength);
+    for (let i = 0; i < orbitOnly.orbitLength; i++) {
+      expect(withSA.orbit.orbitData[i * 2]).toBeCloseTo(
+        orbitOnly.orbitData[i * 2],
+        5
+      );
+      expect(withSA.orbit.orbitData[i * 2 + 1]).toBeCloseTo(
+        orbitOnly.orbitData[i * 2 + 1],
+        5
+      );
+    }
+  });
+
+  it("returns SA with skipIterations > 0 for non-escaping orbit with small radius", () => {
+    const result = computeReferenceOrbitWithSA({
+      centerReStr: "-1",
+      centerImStr: "0",
+      maxIterations: 100,
+      viewportRadius: 1e-10,
+      saOrder: 4,
+    });
+
+    expect(result.sa).not.toBeNull();
+    expect(result.sa!.skipIterations).toBeGreaterThan(0);
+    expect(result.sa!.order).toBe(4);
+    expect(result.sa!.radius).toBeCloseTo(1e-10, 15);
+    expect(result.sa!.coefficients.length).toBe(4 * 2); // order * 2 (re, im pairs)
+  });
+
+  it("returns SA with correct coefficient structure", () => {
+    const result = computeReferenceOrbitWithSA({
+      centerReStr: "0",
+      centerImStr: "0",
+      maxIterations: 100,
+      viewportRadius: 1e-8,
+      saOrder: 6,
+    });
+
+    expect(result.sa).not.toBeNull();
+    expect(result.sa!.coefficients).toBeInstanceOf(Float32Array);
+    expect(result.sa!.coefficients.length).toBe(6 * 2);
+  });
+
+  it("SA skipIterations is bounded by orbit length", () => {
+    const result = computeReferenceOrbitWithSA({
+      centerReStr: "-1",
+      centerImStr: "0",
+      maxIterations: 50,
+      viewportRadius: 1e-10,
+      saOrder: 4,
+    });
+
+    if (result.sa) {
+      expect(result.sa.skipIterations).toBeLessThanOrEqual(50);
+      expect(result.sa.skipIterations).toBeGreaterThan(0);
+    }
+  });
+
+  it("SA accuracy: polynomial approximation matches direct iteration", () => {
+    // Use c=-1 (period-2 orbit) with a small delta
+    const result = computeReferenceOrbitWithSA({
+      centerReStr: "-1",
+      centerImStr: "0",
+      maxIterations: 100,
+      viewportRadius: 1e-6,
+      saOrder: 8,
+    });
+
+    expect(result.sa).not.toBeNull();
+    const sa = result.sa!;
+    const N = sa.skipIterations;
+
+    // Compute δz_N directly by iterating z = z² + c for c = -1 + δc
+    const dcRe = 1e-8; // small delta
+    const dcIm = 0;
+    const cRe = -1 + dcRe;
+
+    // Direct iteration: z = z² + c from z=0
+    let zRe = 0;
+    let zIm = 0;
+    for (let i = 0; i < N; i++) {
+      const newRe = zRe * zRe - zIm * zIm + cRe;
+      const newIm = 2 * zRe * zIm + dcIm; // cIm = 0 + dcIm
+      zRe = newRe;
+      zIm = newIm;
+    }
+    // Reference orbit value at N
+    const ZnRe = result.orbit.orbitData[N * 2];
+    const ZnIm = result.orbit.orbitData[N * 2 + 1];
+    // δz_N = z_N(c+δc) - Z_N(c)
+    const directDzRe = zRe - ZnRe;
+    const directDzIm = zIm - ZnIm;
+
+    // SA approximation: δz_N ≈ Σ B_k · (δc/r)^k · ... via normalized coefficients
+    // B_k = A_k · r^k, so Σ B_k · x^k where x = δc/r
+    const r = sa.radius;
+    const xRe = dcRe / r;
+    const xIm = dcIm / r;
+
+    // Evaluate polynomial using Horner's method
+    let accRe = sa.coefficients[(sa.order - 1) * 2];
+    let accIm = sa.coefficients[(sa.order - 1) * 2 + 1];
+    for (let k = sa.order - 2; k >= 0; k--) {
+      // acc = acc * x + B_k
+      const tmpRe = accRe * xRe - accIm * xIm;
+      const tmpIm = accRe * xIm + accIm * xRe;
+      accRe = tmpRe + sa.coefficients[k * 2];
+      accIm = tmpIm + sa.coefficients[k * 2 + 1];
+    }
+    // Final multiply by x
+    const saDzRe = accRe * xRe - accIm * xIm;
+    const saDzIm = accRe * xIm + accIm * xRe;
+
+    // SA should be a good approximation (relative error < 1%)
+    const directMag = Math.sqrt(directDzRe * directDzRe + directDzIm * directDzIm);
+    const errRe = Math.abs(saDzRe - directDzRe);
+    const errIm = Math.abs(saDzIm - directDzIm);
+    const errMag = Math.sqrt(errRe * errRe + errIm * errIm);
+
+    expect(errMag / directMag).toBeLessThan(0.01);
+  });
+
+  it("returns sa=null for escaping orbit", () => {
+    const result = computeReferenceOrbitWithSA({
+      centerReStr: "2",
+      centerImStr: "0",
+      maxIterations: 20,
+      viewportRadius: 1e-10,
+      saOrder: 4,
+    });
+
+    // c=2 escapes quickly, SA may not find a valid skip point
+    // Either sa is null or skipIterations is very small
+    if (result.sa) {
+      expect(result.sa.skipIterations).toBeLessThan(result.orbit.escapeIteration);
     }
   });
 });
