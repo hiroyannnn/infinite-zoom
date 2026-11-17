@@ -1,6 +1,76 @@
+import Decimal from "decimal.js";
+import { requiredPrecision } from "./arbitrary-precision";
 import type { ViewerState, Viewport, PixelPoint, ComplexPoint } from "./types";
 
 const INITIAL_RANGE_Y = 3;
+const NUMBER_EXPONENT_SPAN =
+  Math.ceil(Math.log10(Number.MAX_VALUE)) -
+  Math.floor(Math.log10(Number.MIN_VALUE));
+
+interface ShiftedCoordinate {
+  value: number;
+  precise?: string;
+}
+
+function shiftCoordinate(
+  value: number,
+  precise: string | undefined,
+  delta: number,
+  zoom: number
+): ShiftedCoordinate {
+  if (precise === undefined) return { value: value + delta };
+  if (delta === 0) return { value, precise };
+
+  const current = new Decimal(precise);
+  const change = new Decimal(delta);
+  const highestExponent = Math.max(current.e, change.e);
+  const lowestExponent = Math.min(
+    current.e - current.precision() + 1,
+    change.e - change.precision() + 1
+  );
+  const digitsWithCarry = highestExponent - lowestExponent + 2;
+  // URL exponents may exceed Number's range; do not expand their entire gap.
+  const precisionBudget =
+    Math.max(requiredPrecision(zoom), current.precision(), change.precision()) +
+    NUMBER_EXPONENT_SPAN;
+  Decimal.set({
+    precision: Math.min(
+      Math.max(requiredPrecision(zoom), digitsWithCarry),
+      precisionBudget
+    ),
+  });
+
+  const shifted = current.plus(change);
+  return { value: shifted.toNumber(), precise: shifted.toString() };
+}
+
+function shiftCenter(
+  state: ViewerState,
+  deltaX: number,
+  deltaY: number,
+  zoom: number
+): Pick<ViewerState, "centerX" | "centerY"> &
+  Partial<Pick<ViewerState, "centerXStr" | "centerYStr">> {
+  const centerX = shiftCoordinate(
+    state.centerX,
+    state.centerXStr,
+    deltaX,
+    zoom
+  );
+  const centerY = shiftCoordinate(
+    state.centerY,
+    state.centerYStr,
+    deltaY,
+    zoom
+  );
+
+  return {
+    centerX: centerX.value,
+    centerY: centerY.value,
+    ...(centerX.precise === undefined ? {} : { centerXStr: centerX.precise }),
+    ...(centerY.precise === undefined ? {} : { centerYStr: centerY.precise }),
+  };
+}
 
 export function computeScale(zoom: number, viewport: Viewport): number {
   return INITIAL_RANGE_Y / (zoom * viewport.height);
@@ -36,19 +106,20 @@ export function zoomAtPoint(
   viewport: Viewport,
   zoomFactor: number
 ): ViewerState {
-  const complexAtCursor = pixelToComplex(pixel, state, viewport);
   const newZoom = state.zoom * zoomFactor;
+  const scale = computeScale(state.zoom, viewport);
   const newScale = computeScale(newZoom, viewport);
-
-  const newCenterX =
-    complexAtCursor.re - (pixel.x - viewport.width * 0.5) * newScale;
-  const newCenterY =
-    complexAtCursor.im + (pixel.y - viewport.height * 0.5) * newScale;
+  const offsetX = pixel.x - viewport.width * 0.5;
+  const offsetY = pixel.y - viewport.height * 0.5;
 
   return {
     ...state,
-    centerX: newCenterX,
-    centerY: newCenterY,
+    ...shiftCenter(
+      state,
+      offsetX * (scale - newScale),
+      offsetY * (newScale - scale),
+      newZoom
+    ),
     zoom: newZoom,
   };
 }
@@ -62,8 +133,7 @@ export function panByPixelDelta(
   const scale = computeScale(state.zoom, viewport);
   return {
     ...state,
-    centerX: state.centerX - deltaX * scale,
-    centerY: state.centerY + deltaY * scale,
+    ...shiftCenter(state, -deltaX * scale, deltaY * scale, state.zoom),
   };
 }
 
