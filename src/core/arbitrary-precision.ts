@@ -1,5 +1,7 @@
 import Decimal from "decimal.js";
 
+export const PRECISION_ZOOM_THRESHOLD = 1e6;
+
 export type { Decimal };
 
 export function requiredPrecision(zoom: number): number {

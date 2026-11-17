@@ -5,9 +5,8 @@ import {
   computeMaxIterations,
 } from "@/core/mandelbrot-math";
 import { DEFAULT_STATE } from "@/core/url-state";
+import { PRECISION_ZOOM_THRESHOLD } from "@/core/arbitrary-precision";
 import type { ViewerState, Viewport, PixelPoint } from "@/core/types";
-
-const PRECISION_ZOOM_THRESHOLD = 1e6;
 
 export type Action =
   | { type: "ZOOM"; pixel: PixelPoint; viewport: Viewport; factor: number }
@@ -23,10 +22,8 @@ function syncPrecisionStrings(state: ViewerState): ViewerState {
       centerYStr: state.centerYStr ?? state.centerY.toPrecision(17),
     };
   }
-  const nextState = { ...state };
-  delete nextState.centerXStr;
-  delete nextState.centerYStr;
-  return nextState;
+  // Clearing these would lose precision when zooming back in.
+  return state;
 }
 
 export function mandelbrotReducer(
@@ -56,7 +53,7 @@ export function mandelbrotReducer(
       return syncPrecisionStrings(newState);
     }
     case "SET_STATE":
-      return action.state;
+      return syncPrecisionStrings(action.state);
     case "RESET":
       return DEFAULT_STATE;
   }
