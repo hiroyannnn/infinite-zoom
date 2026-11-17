@@ -8,14 +8,22 @@ import { computeScale } from "@/core/mandelbrot-math";
 
 const PERTURBATION_ZOOM_THRESHOLD = 1e6;
 
+interface CachedReferenceOrbit {
+  cacheKey: string;
+  value: ReferenceOrbitWithSA;
+}
+
 export function useReferenceOrbit(
   state: ViewerState,
   viewportRef: React.MutableRefObject<Viewport>
 ): ReferenceOrbitWithSA | null {
-  const [result, setResult] = useState<ReferenceOrbitWithSA | null>(null);
+  const [result, setResult] = useState<CachedReferenceOrbit | null>(null);
   const clientRef = useRef<ReferenceOrbitClient | null>(null);
   const cacheKeyRef = useRef("");
   const requestIdRef = useRef(0);
+  const centerReStr = state.centerXStr ?? String(state.centerX);
+  const centerImStr = state.centerYStr ?? String(state.centerY);
+  const cacheKey = `${centerReStr}:${centerImStr}:${state.maxIterations}`;
 
   useEffect(() => {
     clientRef.current = createReferenceOrbitClient();
@@ -28,13 +36,9 @@ export function useReferenceOrbit(
   useEffect(() => {
     if (state.zoom < PERTURBATION_ZOOM_THRESHOLD) {
       cacheKeyRef.current = "";
-      setResult(null);
+      requestIdRef.current++;
       return;
     }
-
-    const centerReStr = state.centerXStr ?? String(state.centerX);
-    const centerImStr = state.centerYStr ?? String(state.centerY);
-    const cacheKey = `${centerReStr}:${centerImStr}:${state.maxIterations}`;
 
     if (cacheKey === cacheKeyRef.current) return;
     cacheKeyRef.current = cacheKey;
@@ -59,15 +63,18 @@ export function useReferenceOrbit(
         viewportRadius,
       })
       .then((newResult) => {
-        // Discard stale results
         if (currentRequestId !== requestIdRef.current) return;
-        setResult(newResult);
+        setResult({ cacheKey, value: newResult });
       })
       .catch((err) => {
         if (currentRequestId !== requestIdRef.current) return;
         console.error("Reference orbit computation failed:", err);
       });
-  }, [state, viewportRef]);
+  }, [state, viewportRef, cacheKey, centerReStr, centerImStr]);
 
-  return result;
+  if (state.zoom < PERTURBATION_ZOOM_THRESHOLD || result?.cacheKey !== cacheKey) {
+    return null;
+  }
+
+  return result.value;
 }

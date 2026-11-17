@@ -23,9 +23,10 @@ function syncPrecisionStrings(state: ViewerState): ViewerState {
       centerYStr: state.centerYStr ?? state.centerY.toPrecision(17),
     };
   }
-  // Below threshold, drop precision strings
-  const { centerXStr: _x, centerYStr: _y, ...rest } = state;
-  return rest;
+  const nextState = { ...state };
+  delete nextState.centerXStr;
+  delete nextState.centerYStr;
+  return nextState;
 }
 
 export function mandelbrotReducer(
